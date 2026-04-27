@@ -52,9 +52,13 @@ impl App {
         articles.read_urls = read_urls;
         articles.starred_urls = starred_urls;
 
+        let cached_titles = storage::load_feed_titles().unwrap_or_default();
+        let mut feeds = FeedsPanel::new(feed_urls);
+        feeds.titles = cached_titles;
+
         Ok(Self {
             focus: Focus::Feeds,
-            feeds: FeedsPanel::new(feed_urls),
+            feeds,
             articles,
             reader: ReaderPanel::new(),
             status: String::from("j/k navigate  Enter open  r refresh  q quit"),
@@ -70,6 +74,7 @@ impl App {
         match fetch::fetch_feed(url) {
             Ok(result) => {
                 self.feeds.loading.retain(|u| u != url);
+                let _ = storage::save_feed_title(url, &result.title);
                 self.feeds.set_title(url, result.title);
                 self.articles.set_articles(result.articles);
                 self.status = format!(

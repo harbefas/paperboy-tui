@@ -51,6 +51,25 @@ pub fn append_starred(entry: &StarredEntry) -> Result<()> {
     append_jsonl(dir().join("starred.jsonl"), entry)
 }
 
+pub fn load_feed_titles() -> Result<std::collections::HashMap<String, String>> {
+    let path = dir().join("feed-titles.json");
+    if !path.exists() {
+        return Ok(std::collections::HashMap::new());
+    }
+    let content = fs::read_to_string(path)?;
+    Ok(serde_json::from_str(&content).unwrap_or_default())
+}
+
+pub fn save_feed_title(url: &str, title: &str) -> Result<()> {
+    let mut titles = load_feed_titles().unwrap_or_default();
+    titles.insert(url.to_string(), title.to_string());
+    let path = dir().join("feed-titles.json");
+    let tmp = path.with_extension("tmp");
+    fs::write(&tmp, serde_json::to_string(&titles)?)?;
+    fs::rename(tmp, path)?;
+    Ok(())
+}
+
 fn read_jsonl<T: for<'de> Deserialize<'de>>(path: PathBuf) -> Result<Vec<T>> {
     if !path.exists() {
         return Ok(vec![]);
