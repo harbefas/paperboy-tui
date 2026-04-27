@@ -200,17 +200,11 @@ fn run(terminal: &mut Terminal<ratatui::backend::CrosstermBackend<io::Stdout>>) 
             } else {
                 let panels = Layout::default()
                     .direction(Direction::Horizontal)
-                    .constraints([
-                        Constraint::Percentage(20),
-                        Constraint::Percentage(40),
-                        Constraint::Percentage(40),
-                    ])
+                    .constraints([Constraint::Percentage(25), Constraint::Percentage(75)])
                     .split(main_area);
 
-                app.reader_height = panels[2].height;
                 app.feeds.render(frame, panels[0], app.focus == Focus::Feeds);
                 app.articles.render(frame, panels[1], app.focus == Focus::Articles);
-                app.reader.render(frame, panels[2]);
             }
 
             let status_line = Line::from(vec![
