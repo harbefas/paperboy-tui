@@ -11,6 +11,9 @@ use crossterm::{
 };
 use ratatui::{
     layout::{Constraint, Direction, Layout},
+    style::Style,
+    text::{Line, Span},
+    widgets::Paragraph,
     Terminal,
 };
 use std::{
@@ -54,7 +57,7 @@ impl App {
             feeds: FeedsPanel::new(feed_urls),
             articles,
             reader: ReaderPanel::new(),
-            status: String::from(" pb  j/k navigate  Enter open  s star  r refresh  q quit"),
+            status: String::from("j/k navigate  Enter open  r refresh  q quit"),
             reader_height: 0,
         })
     }
@@ -62,14 +65,15 @@ impl App {
     fn load_feed(&mut self, url: &str) {
         self.feeds.loading.push(url.to_string());
         self.feeds.errors.retain(|u| u != url);
-        self.status = format!(" fetching {}…", url);
+        self.status = format!("fetching {}…", fetch::url_to_label(url));
 
         match fetch::fetch_feed(url) {
-            Ok(articles) => {
+            Ok(result) => {
                 self.feeds.loading.retain(|u| u != url);
-                self.articles.set_articles(articles);
+                self.feeds.set_title(url, result.title);
+                self.articles.set_articles(result.articles);
                 self.status = format!(
-                    " {} articles — j/k navigate  Enter read  s star  Tab switch panel",
+                    "{} articles  —  j/k navigate  Enter read  s star  Esc back",
                     self.articles.articles.len()
                 );
                 self.focus = Focus::Articles;
@@ -77,18 +81,22 @@ impl App {
             Err(e) => {
                 self.feeds.loading.retain(|u| u != url);
                 self.feeds.errors.push(url.to_string());
-                self.status = format!(" error: {}", e);
+                self.status = format!("error: {}", e);
             }
         }
     }
 
     fn open_article(&mut self) {
-        let Some(article) = self.articles.selected().cloned() else {
-            return;
-        };
+        let Some(article) = self.articles.selected().cloned() else { return; };
 
         let starred = self.articles.starred_urls.contains(&article.url);
         let text = fetch::fetch_article_text(&article);
+        let feed_title = self
+            .feeds
+            .selected()
+            .and_then(|url| self.feeds.titles.get(url))
+            .cloned()
+            .unwrap_or_else(|| fetch::url_to_label(article.feed_url.as_str()));
 
         if !self.articles.read_urls.contains(&article.url) {
             self.articles.read_urls.insert(article.url.clone());
@@ -101,9 +109,9 @@ impl App {
             let _ = storage::append_history(&entry);
         }
 
-        self.reader.set_article(article, text, starred);
+        self.reader.set_article(article, feed_title, text, starred);
         self.focus = Focus::Reader;
-        self.status = String::from(" reader — j/k scroll  d/u page  b browser  s star  Esc back  q quit");
+        self.status = String::from("j/k scroll  d/u page  b browser  s star  Esc back  q quit");
     }
 
     fn toggle_star(&mut self) {
@@ -112,27 +120,17 @@ impl App {
             Focus::Reader => self.reader.article.as_ref().map(|a| a.url.clone()),
             _ => None,
         };
-
         let Some(url) = url else { return };
 
         if self.articles.starred_urls.contains(&url) {
             self.articles.starred_urls.remove(&url);
-            if let Focus::Reader = self.focus {
-                self.reader.starred = false;
-            }
-            self.status = String::from(" unstarred");
+            if let Focus::Reader = self.focus { self.reader.starred = false; }
+            self.status = String::from("unstarred");
         } else {
             self.articles.starred_urls.insert(url.clone());
-            if let Focus::Reader = self.focus {
-                self.reader.starred = true;
-            }
-            let article = self
-                .articles
-                .articles
-                .iter()
-                .find(|a| a.url == url)
+            if let Focus::Reader = self.focus { self.reader.starred = true; }
+            let article = self.articles.articles.iter().find(|a| a.url == url)
                 .or(self.reader.article.as_ref());
-
             if let Some(a) = article {
                 let entry = storage::StarredEntry {
                     url: a.url.clone(),
@@ -142,7 +140,7 @@ impl App {
                 };
                 let _ = storage::append_starred(&entry);
             }
-            self.status = String::from(" starred ★");
+            self.status = String::from("starred ★");
         }
     }
 
@@ -159,10 +157,7 @@ impl App {
 }
 
 fn now_secs() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs()
+    SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs()
 }
 
 fn main() -> Result<()> {
@@ -171,13 +166,10 @@ fn main() -> Result<()> {
     execute!(stdout, EnterAlternateScreen)?;
     let backend = ratatui::backend::CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
-
     let result = run(&mut terminal);
-
     disable_raw_mode()?;
     execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
     terminal.show_cursor()?;
-
     result
 }
 
@@ -189,51 +181,45 @@ fn run(terminal: &mut Terminal<ratatui::backend::CrosstermBackend<io::Stdout>>) 
         terminal.draw(|frame| {
             let size = frame.area();
 
-            let chunks = Layout::default()
+            let outer = Layout::default()
                 .direction(Direction::Vertical)
                 .constraints([Constraint::Min(0), Constraint::Length(1)])
                 .split(size);
 
-            let main_area = chunks[0];
-            let status_area = chunks[1];
+            let main_area = outer[0];
+            let status_area = outer[1];
 
-            let panels = Layout::default()
-                .direction(Direction::Horizontal)
-                .constraints([
-                    Constraint::Percentage(20),
-                    Constraint::Percentage(35),
-                    Constraint::Percentage(45),
-                ])
-                .split(main_area);
+            if app.focus == Focus::Reader {
+                app.reader_height = main_area.height;
+                app.reader.render_fullscreen(frame, main_area);
+            } else {
+                let panels = Layout::default()
+                    .direction(Direction::Horizontal)
+                    .constraints([
+                        Constraint::Percentage(20),
+                        Constraint::Percentage(40),
+                        Constraint::Percentage(40),
+                    ])
+                    .split(main_area);
 
-            app.reader_height = panels[2].height;
+                app.reader_height = panels[2].height;
+                app.feeds.render(frame, panels[0], app.focus == Focus::Feeds);
+                app.articles.render(frame, panels[1], app.focus == Focus::Articles);
+                app.reader.render(frame, panels[2]);
+            }
 
-            app.feeds.render(frame, panels[0], app.focus == Focus::Feeds);
-            app.articles.render(frame, panels[1], app.focus == Focus::Articles);
-            app.reader.render(frame, panels[2]);
-
-            let status_line = ratatui::text::Line::from(vec![
-                ratatui::text::Span::styled(
-                    " ■ ",
-                    ratatui::style::Style::default().fg(theme::ORANGE),
-                ),
-                ratatui::text::Span::styled(
-                    "paperboy  ",
-                    ratatui::style::Style::default().fg(theme::TX3),
-                ),
-                ratatui::text::Span::styled(
-                    app.status.trim_start(),
-                    ratatui::style::Style::default().fg(theme::TX4),
-                ),
+            let status_line = Line::from(vec![
+                Span::styled(" ■ ", Style::default().fg(theme::ORANGE)),
+                Span::styled("paperboy  ", Style::default().fg(theme::TX3)),
+                Span::styled(app.status.as_str(), Style::default().fg(theme::TX4)),
             ]);
-            let status_widget = ratatui::widgets::Paragraph::new(status_line)
-                .style(ratatui::style::Style::default().bg(theme::BG2));
-            frame.render_widget(status_widget, status_area);
+            frame.render_widget(
+                Paragraph::new(status_line).style(Style::default().bg(theme::BG2)),
+                status_area,
+            );
         })?;
 
-        if !event::poll(Duration::from_millis(200))? {
-            continue;
-        }
+        if !event::poll(Duration::from_millis(200))? { continue; }
 
         if let Event::Key(key) = event::read()? {
             if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
@@ -243,33 +229,14 @@ fn run(terminal: &mut Terminal<ratatui::backend::CrosstermBackend<io::Stdout>>) 
             match app.focus {
                 Focus::Feeds => match key.code {
                     KeyCode::Char('q') => break,
-                    KeyCode::Char('j') | KeyCode::Down => {
-                        gg_pending = false;
-                        app.feeds.next();
-                    }
-                    KeyCode::Char('k') | KeyCode::Up => {
-                        gg_pending = false;
-                        app.feeds.prev();
-                    }
+                    KeyCode::Char('j') | KeyCode::Down => { gg_pending = false; app.feeds.next(); }
+                    KeyCode::Char('k') | KeyCode::Up => { gg_pending = false; app.feeds.prev(); }
                     KeyCode::Char('g') => {
-                        if gg_pending {
-                            app.feeds.first();
-                            gg_pending = false;
-                        } else {
-                            gg_pending = true;
-                        }
+                        if gg_pending { app.feeds.first(); gg_pending = false; }
+                        else { gg_pending = true; }
                     }
-                    KeyCode::Char('G') => {
-                        gg_pending = false;
-                        app.feeds.last();
-                    }
-                    KeyCode::Enter => {
-                        gg_pending = false;
-                        if let Some(url) = app.feeds.selected().map(|s| s.to_string()) {
-                            app.load_feed(&url);
-                        }
-                    }
-                    KeyCode::Char('r') => {
+                    KeyCode::Char('G') => { gg_pending = false; app.feeds.last(); }
+                    KeyCode::Enter | KeyCode::Char('r') => {
                         gg_pending = false;
                         if let Some(url) = app.feeds.selected().map(|s| s.to_string()) {
                             app.load_feed(&url);
@@ -279,112 +246,57 @@ fn run(terminal: &mut Terminal<ratatui::backend::CrosstermBackend<io::Stdout>>) 
                         gg_pending = false;
                         if !app.articles.articles.is_empty() {
                             app.focus = Focus::Articles;
+                            app.status = String::from("j/k navigate  Enter read  s star  Esc back  q quit");
                         }
                     }
-                    _ => {
-                        gg_pending = false;
-                    }
+                    _ => { gg_pending = false; }
                 },
 
                 Focus::Articles => match key.code {
                     KeyCode::Char('q') => break,
-                    KeyCode::Char('j') | KeyCode::Down => {
-                        gg_pending = false;
-                        app.articles.next();
-                    }
-                    KeyCode::Char('k') | KeyCode::Up => {
-                        gg_pending = false;
-                        app.articles.prev();
-                    }
+                    KeyCode::Char('j') | KeyCode::Down => { gg_pending = false; app.articles.next(); }
+                    KeyCode::Char('k') | KeyCode::Up => { gg_pending = false; app.articles.prev(); }
                     KeyCode::Char('g') => {
-                        if gg_pending {
-                            app.articles.first();
-                            gg_pending = false;
-                        } else {
-                            gg_pending = true;
-                        }
+                        if gg_pending { app.articles.first(); gg_pending = false; }
+                        else { gg_pending = true; }
                     }
-                    KeyCode::Char('G') => {
-                        gg_pending = false;
-                        app.articles.last();
-                    }
-                    KeyCode::Enter => {
-                        gg_pending = false;
-                        app.open_article();
-                    }
-                    KeyCode::Char('s') => {
-                        gg_pending = false;
-                        app.toggle_star();
-                    }
-                    KeyCode::Char('b') => {
-                        gg_pending = false;
-                        app.open_in_browser();
-                    }
+                    KeyCode::Char('G') => { gg_pending = false; app.articles.last(); }
+                    KeyCode::Enter => { gg_pending = false; app.open_article(); }
+                    KeyCode::Char('s') => { gg_pending = false; app.toggle_star(); }
+                    KeyCode::Char('b') => { gg_pending = false; app.open_in_browser(); }
                     KeyCode::Esc | KeyCode::BackTab => {
                         gg_pending = false;
                         app.focus = Focus::Feeds;
-                        app.status =
-                            String::from(" feeds — j/k navigate  Enter load  r refresh  q quit");
+                        app.status = String::from("j/k navigate  Enter load  r refresh  q quit");
                     }
                     KeyCode::Tab => {
                         gg_pending = false;
                         if app.reader.article.is_some() {
-                            app.focus = Focus::Reader;
+                            app.open_article();
                         }
                     }
-                    _ => {
-                        gg_pending = false;
-                    }
+                    _ => { gg_pending = false; }
                 },
 
                 Focus::Reader => match key.code {
                     KeyCode::Char('q') => break,
-                    KeyCode::Char('j') | KeyCode::Down => {
-                        app.reader.scroll_down();
-                    }
-                    KeyCode::Char('k') | KeyCode::Up => {
-                        app.reader.scroll_up();
-                    }
-                    KeyCode::Char('d') => {
-                        app.reader.page_down(app.reader_height);
-                    }
-                    KeyCode::Char('u') => {
-                        app.reader.page_up(app.reader_height);
-                    }
+                    KeyCode::Char('j') | KeyCode::Down => { app.reader.scroll_down(); }
+                    KeyCode::Char('k') | KeyCode::Up => { app.reader.scroll_up(); }
+                    KeyCode::Char('d') => { app.reader.page_down(app.reader_height); }
+                    KeyCode::Char('u') => { app.reader.page_up(app.reader_height); }
                     KeyCode::Char('g') => {
-                        if gg_pending {
-                            app.reader.scroll = 0;
-                            gg_pending = false;
-                        } else {
-                            gg_pending = true;
-                        }
+                        if gg_pending { app.reader.scroll = 0; gg_pending = false; }
+                        else { gg_pending = true; }
                     }
-                    KeyCode::Char('G') => {
-                        gg_pending = false;
-                        app.reader.scroll = app.reader.content_height;
-                    }
-                    KeyCode::Char('s') => {
-                        gg_pending = false;
-                        app.toggle_star();
-                    }
-                    KeyCode::Char('b') => {
-                        gg_pending = false;
-                        app.open_in_browser();
-                    }
+                    KeyCode::Char('G') => { gg_pending = false; app.reader.scroll = app.reader.content_height; }
+                    KeyCode::Char('s') => { gg_pending = false; app.toggle_star(); }
+                    KeyCode::Char('b') => { gg_pending = false; app.open_in_browser(); }
                     KeyCode::Esc | KeyCode::BackTab => {
                         gg_pending = false;
                         app.focus = Focus::Articles;
-                        app.status = String::from(
-                            " articles — j/k navigate  Enter read  s star  b browser  Esc back",
-                        );
+                        app.status = String::from("j/k navigate  Enter read  s star  b browser  Esc back");
                     }
-                    KeyCode::Tab => {
-                        gg_pending = false;
-                        app.focus = Focus::Feeds;
-                    }
-                    _ => {
-                        gg_pending = false;
-                    }
+                    _ => { gg_pending = false; }
                 },
             }
         }

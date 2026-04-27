@@ -1,3 +1,4 @@
+use crate::fetch::url_to_label;
 use crate::theme;
 use ratatui::{
     layout::Rect,
@@ -6,9 +7,11 @@ use ratatui::{
     widgets::{Block, BorderType, Borders, List, ListItem, ListState},
     Frame,
 };
+use std::collections::HashMap;
 
 pub struct FeedsPanel {
     pub feeds: Vec<String>,
+    pub titles: HashMap<String, String>,
     pub state: ListState,
     pub loading: Vec<String>,
     pub errors: Vec<String>,
@@ -20,11 +23,15 @@ impl FeedsPanel {
         if !feeds.is_empty() {
             state.select(Some(0));
         }
-        Self { feeds, state, loading: vec![], errors: vec![] }
+        Self { feeds, titles: HashMap::new(), state, loading: vec![], errors: vec![] }
     }
 
     pub fn selected(&self) -> Option<&str> {
         self.state.selected().and_then(|i| self.feeds.get(i)).map(|s| s.as_str())
+    }
+
+    pub fn set_title(&mut self, url: &str, title: String) {
+        self.titles.insert(url.to_string(), title);
     }
 
     pub fn next(&mut self) {
@@ -49,9 +56,10 @@ impl FeedsPanel {
 
     pub fn render(&mut self, frame: &mut Frame, area: Rect, focused: bool) {
         let items: Vec<ListItem> = self.feeds.iter().map(|url| {
-            let label = feed_label(url);
             let is_loading = self.loading.contains(url);
             let is_error = self.errors.contains(url);
+
+            let label = self.titles.get(url).cloned().unwrap_or_else(|| url_to_label(url));
 
             let (indicator, ind_style) = if is_loading {
                 ("~ ", Style::default().fg(theme::ACCENT))
@@ -81,14 +89,4 @@ impl FeedsPanel {
 
         frame.render_stateful_widget(list, area, &mut self.state);
     }
-}
-
-fn feed_label(url: &str) -> String {
-    url.trim_start_matches("https://")
-        .trim_start_matches("http://")
-        .trim_end_matches('/')
-        .split('/')
-        .next()
-        .unwrap_or(url)
-        .to_string()
 }
