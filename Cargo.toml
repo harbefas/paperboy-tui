@@ -1,0 +1,19 @@
+[package]
+name = "paperboy-tui"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "pb"
+path = "src/main.rs"
+
+[dependencies]
+ratatui = "0.29"
+crossterm = "0.28"
+feed-rs = "2"
+reqwest = { version = "0.12", features = ["blocking"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+html2text = "0.13"
+anyhow = "1"
+dirs-next = "2"
