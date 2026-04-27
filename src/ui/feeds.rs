@@ -1,6 +1,7 @@
+use crate::theme;
 use ratatui::{
     layout::Rect,
-    style::{Color, Modifier, Style},
+    style::Style,
     text::{Line, Span},
     widgets::{Block, BorderType, Borders, List, ListItem, ListState},
     Frame,
@@ -19,12 +20,7 @@ impl FeedsPanel {
         if !feeds.is_empty() {
             state.select(Some(0));
         }
-        Self {
-            feeds,
-            state,
-            loading: vec![],
-            errors: vec![],
-        }
+        Self { feeds, state, loading: vec![], errors: vec![] }
     }
 
     pub fn selected(&self) -> Option<&str> {
@@ -33,9 +29,7 @@ impl FeedsPanel {
 
     pub fn next(&mut self) {
         let len = self.feeds.len();
-        if len == 0 {
-            return;
-        }
+        if len == 0 { return; }
         let i = self.state.selected().map(|i| (i + 1).min(len - 1)).unwrap_or(0);
         self.state.select(Some(i));
     }
@@ -46,58 +40,44 @@ impl FeedsPanel {
     }
 
     pub fn first(&mut self) {
-        if !self.feeds.is_empty() {
-            self.state.select(Some(0));
-        }
+        if !self.feeds.is_empty() { self.state.select(Some(0)); }
     }
 
     pub fn last(&mut self) {
-        if !self.feeds.is_empty() {
-            self.state.select(Some(self.feeds.len() - 1));
-        }
+        if !self.feeds.is_empty() { self.state.select(Some(self.feeds.len() - 1)); }
     }
 
     pub fn render(&mut self, frame: &mut Frame, area: Rect, focused: bool) {
-        let border_style = if focused {
-            Style::default().fg(Color::White)
-        } else {
-            Style::default().fg(Color::DarkGray)
-        };
+        let items: Vec<ListItem> = self.feeds.iter().map(|url| {
+            let label = feed_label(url);
+            let is_loading = self.loading.contains(url);
+            let is_error = self.errors.contains(url);
 
-        let items: Vec<ListItem> = self
-            .feeds
-            .iter()
-            .map(|url| {
-                let label = feed_label(url);
-                let is_loading = self.loading.contains(url);
-                let is_error = self.errors.contains(url);
+            let (indicator, ind_style) = if is_loading {
+                ("~ ", Style::default().fg(theme::ACCENT))
+            } else if is_error {
+                ("! ", Style::default().fg(theme::RED))
+            } else {
+                ("  ", Style::default())
+            };
 
-                let indicator = if is_loading {
-                    Span::styled("~ ", Style::default().fg(Color::Yellow))
-                } else if is_error {
-                    Span::styled("! ", Style::default().fg(Color::Red))
-                } else {
-                    Span::raw("  ")
-                };
-
-                ListItem::new(Line::from(vec![indicator, Span::raw(label)]))
-            })
-            .collect();
+            ListItem::new(Line::from(vec![
+                Span::styled(indicator, ind_style),
+                Span::styled(label, Style::default().fg(theme::TX2)),
+            ]))
+        }).collect();
 
         let list = List::new(items)
             .block(
                 Block::default()
-                    .title(" feeds ")
+                    .title(Span::styled(" feeds ", Style::default().fg(theme::TX3)))
                     .borders(Borders::ALL)
                     .border_type(BorderType::Rounded)
-                    .border_style(border_style),
+                    .border_style(theme::border(focused))
+                    .style(Style::default().bg(theme::BG)),
             )
-            .highlight_style(
-                Style::default()
-                    .fg(Color::Black)
-                    .bg(Color::White)
-                    .add_modifier(Modifier::BOLD),
-            );
+            .highlight_style(theme::highlight())
+            .highlight_symbol("▸ ");
 
         frame.render_stateful_widget(list, area, &mut self.state);
     }

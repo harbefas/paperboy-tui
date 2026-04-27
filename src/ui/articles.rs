@@ -1,7 +1,8 @@
 use crate::fetch::Article;
+use crate::theme;
 use ratatui::{
     layout::Rect,
-    style::{Color, Modifier, Style},
+    style::Style,
     text::{Line, Span},
     widgets::{Block, BorderType, Borders, List, ListItem, ListState},
     Frame,
@@ -39,9 +40,7 @@ impl ArticlesPanel {
 
     pub fn next(&mut self) {
         let len = self.articles.len();
-        if len == 0 {
-            return;
-        }
+        if len == 0 { return; }
         let i = self.state.selected().map(|i| (i + 1).min(len - 1)).unwrap_or(0);
         self.state.select(Some(i));
     }
@@ -52,71 +51,51 @@ impl ArticlesPanel {
     }
 
     pub fn first(&mut self) {
-        if !self.articles.is_empty() {
-            self.state.select(Some(0));
-        }
+        if !self.articles.is_empty() { self.state.select(Some(0)); }
     }
 
     pub fn last(&mut self) {
-        if !self.articles.is_empty() {
-            self.state.select(Some(self.articles.len() - 1));
-        }
+        if !self.articles.is_empty() { self.state.select(Some(self.articles.len() - 1)); }
     }
 
     pub fn render(&mut self, frame: &mut Frame, area: Rect, focused: bool) {
-        let border_style = if focused {
-            Style::default().fg(Color::White)
-        } else {
-            Style::default().fg(Color::DarkGray)
-        };
+        let items: Vec<ListItem> = self.articles.iter().map(|a| {
+            let is_read = self.read_urls.contains(&a.url);
+            let is_starred = self.starred_urls.contains(&a.url);
 
-        let items: Vec<ListItem> = self
-            .articles
-            .iter()
-            .map(|a| {
-                let is_read = self.read_urls.contains(&a.url);
-                let is_starred = self.starred_urls.contains(&a.url);
+            let date = a.published.as_deref().unwrap_or("         ");
 
-                let date = a.published.as_deref().unwrap_or("          ");
+            let star = if is_starred {
+                Span::styled("★ ", Style::default().fg(theme::ACCENT))
+            } else {
+                Span::styled("  ", Style::default())
+            };
 
-                let star = if is_starred {
-                    Span::styled("★ ", Style::default().fg(Color::Yellow))
-                } else {
-                    Span::raw("  ")
-                };
+            let title_style = if is_read {
+                Style::default().fg(theme::TX4)
+            } else {
+                Style::default().fg(theme::TX)
+            };
 
-                let title_style = if is_read {
-                    Style::default().fg(Color::DarkGray)
-                } else {
-                    Style::default().fg(Color::White)
-                };
-
-                ListItem::new(Line::from(vec![
-                    star,
-                    Span::styled(
-                        format!("{} ", date),
-                        Style::default().fg(Color::DarkGray),
-                    ),
-                    Span::styled(a.title.clone(), title_style),
-                ]))
-            })
-            .collect();
+            ListItem::new(Line::from(vec![
+                star,
+                Span::styled(format!("{} ", date), Style::default().fg(theme::TX4)),
+                Span::styled(a.title.clone(), title_style),
+            ]))
+        }).collect();
 
         let title = format!(" articles ({}) ", self.articles.len());
         let list = List::new(items)
             .block(
                 Block::default()
-                    .title(title)
+                    .title(Span::styled(title, Style::default().fg(theme::TX3)))
                     .borders(Borders::ALL)
                     .border_type(BorderType::Rounded)
-                    .border_style(border_style),
+                    .border_style(theme::border(focused))
+                    .style(Style::default().bg(theme::BG)),
             )
-            .highlight_style(
-                Style::default()
-                    .fg(Color::Black)
-                    .bg(Color::White)
-                    .add_modifier(Modifier::BOLD),
-            );
+            .highlight_style(theme::highlight())
+            .highlight_symbol("▸ ");
 
         frame.render_stateful_widget(list, area, &mut self.state);
     }

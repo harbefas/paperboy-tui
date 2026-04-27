@@ -1,5 +1,6 @@
 mod fetch;
 mod storage;
+mod theme;
 mod ui;
 
 use anyhow::Result;
@@ -211,9 +212,23 @@ fn run(terminal: &mut Terminal<ratatui::backend::CrosstermBackend<io::Stdout>>) 
             app.articles.render(frame, panels[1], app.focus == Focus::Articles);
             app.reader.render(frame, panels[2]);
 
-            let status = ratatui::widgets::Paragraph::new(app.status.as_str())
-                .style(ratatui::style::Style::default().fg(ratatui::style::Color::DarkGray));
-            frame.render_widget(status, status_area);
+            let status_line = ratatui::text::Line::from(vec![
+                ratatui::text::Span::styled(
+                    " ■ ",
+                    ratatui::style::Style::default().fg(theme::ORANGE),
+                ),
+                ratatui::text::Span::styled(
+                    "paperboy  ",
+                    ratatui::style::Style::default().fg(theme::TX3),
+                ),
+                ratatui::text::Span::styled(
+                    app.status.trim_start(),
+                    ratatui::style::Style::default().fg(theme::TX4),
+                ),
+            ]);
+            let status_widget = ratatui::widgets::Paragraph::new(status_line)
+                .style(ratatui::style::Style::default().bg(theme::BG2));
+            frame.render_widget(status_widget, status_area);
         })?;
 
         if !event::poll(Duration::from_millis(200))? {
