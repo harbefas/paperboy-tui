@@ -1,4 +1,5 @@
 mod fetch;
+mod render;
 mod storage;
 mod theme;
 mod ui;
@@ -95,7 +96,7 @@ impl App {
         let Some(article) = self.articles.selected().cloned() else { return; };
 
         let starred = self.articles.starred_urls.contains(&article.url);
-        let text = fetch::fetch_article_text(&article);
+        let lines = render::render_html(&article.html);
         let feed_title = self
             .feeds
             .selected()
@@ -114,7 +115,7 @@ impl App {
             let _ = storage::append_history(&entry);
         }
 
-        self.reader.set_article(article, feed_title, text, starred);
+        self.reader.set_article(article, feed_title, lines, starred);
         self.focus = Focus::Reader;
         self.status = String::from("j/k scroll  d/u page  b browser  s star  Esc back  q quit");
     }
