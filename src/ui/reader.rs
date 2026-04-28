@@ -1,4 +1,15 @@
 use crate::fetch::Article;
+
+fn truncate_str(s: &str, max: usize) -> String {
+    let chars: Vec<char> = s.chars().collect();
+    if chars.len() <= max {
+        s.to_string()
+    } else {
+        let mut t: String = chars[..max.saturating_sub(1)].iter().collect();
+        t.push('…');
+        t
+    }
+}
 use crate::theme;
 use ratatui::{
     layout::{Constraint, Direction, Layout, Margin, Rect},
@@ -70,51 +81,43 @@ impl ReaderPanel {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(1), // breadcrumb
-                Constraint::Length(1), // spacer
-                Constraint::Length(2), // feed + date
-                Constraint::Length(1), // spacer
-                Constraint::Length(3), // title (up to 3 lines)
+                Constraint::Length(1), // topbar
                 Constraint::Length(1), // divider
                 Constraint::Min(0),    // body
             ])
             .split(center);
 
-        // breadcrumb
-        frame.render_widget(
-            Paragraph::new(Line::from(vec![
-                Span::styled("feeds", Style::default().fg(theme::TX4)),
-                Span::styled("  /  ", Style::default().fg(theme::TX4)),
-                Span::styled(self.feed_title.clone(), Style::default().fg(theme::TX3)),
-                Span::styled("  /  ", Style::default().fg(theme::TX4)),
-                Span::styled("reader", Style::default().fg(theme::TX2)),
-            ])),
-            chunks[0],
-        );
-
-        // feed + date
+        // topbar: feed · title (truncated) ··· ★ date
         let star = if self.starred {
-            Span::styled("★  ", Style::default().fg(theme::ACCENT))
+            Span::styled(" ★", Style::default().fg(theme::ACCENT))
         } else {
             Span::raw("")
         };
         let date = article.published.as_deref().unwrap_or("");
-        frame.render_widget(
-            Paragraph::new(vec![
-                Line::from(Span::styled(self.feed_title.clone(), Style::default().fg(theme::ACCENT))),
-                Line::from(vec![star, Span::styled(date, Style::default().fg(theme::TX3))]),
-            ]),
-            chunks[2],
-        );
+        let date_span = if date.is_empty() {
+            Span::raw("")
+        } else {
+            Span::styled(format!("  {}", date), Style::default().fg(theme::TX4))
+        };
 
-        // title
+        // available width for title: col - feed - sep - star - date - padding
+        let meta_len = self.feed_title.chars().count()
+            + 3  // " · "
+            + if self.starred { 2 } else { 0 }
+            + date.chars().count()
+            + if date.is_empty() { 0 } else { 2 };
+        let title_max = (col_width as usize).saturating_sub(meta_len + 2);
+        let title_short = truncate_str(&article.title, title_max);
+
         frame.render_widget(
-            Paragraph::new(Span::styled(
-                article.title.clone(),
-                Style::default().fg(theme::TX).add_modifier(Modifier::BOLD),
-            ))
-            .wrap(Wrap { trim: false }),
-            chunks[4],
+            Paragraph::new(Line::from(vec![
+                Span::styled(self.feed_title.clone(), Style::default().fg(theme::TX3)),
+                Span::styled("  ·  ", Style::default().fg(theme::TX4)),
+                Span::styled(title_short, Style::default().fg(theme::TX2)),
+                star,
+                date_span,
+            ])),
+            chunks[0],
         );
 
         // divider
@@ -123,11 +126,11 @@ impl ReaderPanel {
                 "─".repeat(col_width as usize),
                 Style::default().fg(theme::BORDER),
             )),
-            chunks[5],
+            chunks[1],
         );
 
         // body
-        let body_area = chunks[6];
+        let body_area = chunks[2];
         let inner_height = body_area.height;
         self.content_height = self.lines.len() as u16;
 
